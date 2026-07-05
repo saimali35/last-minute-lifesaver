@@ -1,92 +1,39 @@
-const GROQ_KEY = import.meta.env.VITE_GROQ_API_KEY;
 
-const BASE_URL = "https://api.groq.com/openai/v1/chat/completions";
 
-async function callGroq(systemPrompt, userPrompt) {
-  const res = await fetch(BASE_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${GROQ_KEY}`,
-    },
-    body: JSON.stringify({
-      model: "llama-3.3-70b-versatile",
-      messages: [
-        {
-          role: "system",
-          content: systemPrompt,
-        },
-        {
-          role: "user",
-          content: userPrompt,
-        },
-      ],
-      temperature: 0.7,
-      max_tokens: 1000,
-    }),
-  });
+const API_BASE_URL = import.meta.env.VITE_API_URL || "/api";
 
-  if (!res.ok) {
-    const err = await res.json();
-    throw new Error(err?.error?.message || "Groq API error");
-  }
-
-  const data = await res.json();
-  return data.choices?.[0]?.message?.content || "";
-}
-
-export async function callGeminiChat(systemPrompt, history) {
-  const messages = [
-    {
-      role: "system",
-      content: systemPrompt,
-    },
-    ...history.map((m) => ({
-      role: m.role === "model" ? "assistant" : "user",
-      content: m.parts?.[0]?.text || "",
-    })),
-  ];
-
-  const res = await fetch(BASE_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${GROQ_KEY}`,
-    },
-    body: JSON.stringify({
-      model: "llama-3.3-70b-versatile",
-      messages,
-      temperature: 0.8,
-      max_tokens: 1000,
-    }),
-  });
-
-  if (!res.ok) {
-    const err = await res.json();
-    throw new Error(err?.error?.message || "Groq API error");
-  }
-
-  const data = await res.json();
-  return data.choices?.[0]?.message?.content || "";
-}
-
+// ─── POST /api/ai/score ───────────────────────────────────────────────────────
 export async function scoreTask({ title, category, hoursLeft }) {
-  const system = `You are a productivity AI. Given a task, return ONLY a valid JSON object with:
-- urgency: integer 1-10 based on deadline and task type
-- tip: one actionable sentence under 15 words to start the task immediately
-No markdown, no backticks, no explanation. Just raw JSON.`;
+  const res = await fetch(`${API_BASE_URL}/ai/score`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title, category, hoursLeft }),
+  });
 
-  const prompt = `Task: "${title}", Category: ${category}, Hours until deadline: ${hoursLeft}`;
+  const data = await res.json();
 
-  const text = await callGroq(system, prompt);
-  const cleaned = text.replace(/```json|```/g, "").trim();
+  if (!res.ok || !data.success) {
+    throw new Error(data?.message || "Failed to score task");
+  }
 
-  return JSON.parse(cleaned);
+  return data.data; // { urgency, tip }
 }
 
-export function toGeminiHistory(messages) {
-  return messages.map((m) => ({
-    role: m.role === "assistant" ? "model" : "user",
-    parts: [{ text: m.content }],
-  }));
+// ─── POST /api/ai/chat ────────────────────────────────────────────────────────
+// history: array of { role: "user" | "assistant", content: string }
+// tasks: optional array of task objects for context
+export async function chatWithAI(history, tasks = []) {
+  const res = await fetch(`${API_BASE_URL}/ai/chat`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ messages: history, tasks }),
+  });
+
+  const data = await res.json();
+
+  if (!res.ok || !data.success) {
+    throw new Error(data?.message || "Failed to get AI reply");
+  }
+
+  return data.data.reply; // string
 }

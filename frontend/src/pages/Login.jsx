@@ -1,19 +1,48 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 
-export default function Login() {
-  const [form, setForm]     = useState({ email: "", password: "" });
-  const [error, setError]   = useState("");
-  const navigate            = useNavigate();
+const API_BASE_URL = import.meta.env.VITE_API_URL || "/api";
 
-  function handleLogin() {
+export default function Login() {
+  const [form, setForm]       = useState({ email: "", password: "" });
+  const [error, setError]     = useState("");
+  const [loading, setLoading] = useState(false);
+  const navigate              = useNavigate();
+
+  async function handleLogin() {
     if (!form.email || !form.password) {
       setError("Please fill in all fields");
       return;
     }
-    // TODO: replace with real backend call later
-    localStorage.setItem("isLoggedIn", "true");
-    navigate("/");
+
+    setError("");
+    setLoading(true);
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(form),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok || !data.success) {
+        setError(data?.message || "Login failed");
+        return;
+      }
+
+      // Store the JWT and basic user info for later authenticated requests
+      localStorage.setItem("token", data.data.token);
+      localStorage.setItem("user", JSON.stringify(data.data.user));
+
+      navigate("/");
+    } catch (err) {
+      console.error("Login error:", err);
+      setError("Could not reach the server. Please try again.");
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
@@ -55,9 +84,10 @@ export default function Login() {
           />
           <button
             onClick={handleLogin}
-            className="bg-amber text-bg font-bold py-2.5 rounded-lg hover:brightness-110 transition cursor-pointer border-0 mt-1"
+            disabled={loading}
+            className="bg-amber text-bg font-bold py-2.5 rounded-lg hover:brightness-110 transition cursor-pointer border-0 mt-1 disabled:opacity-60 disabled:cursor-not-allowed"
           >
-            Sign In
+            {loading ? "Signing in..." : "Sign In"}
           </button>
         </div>
 
