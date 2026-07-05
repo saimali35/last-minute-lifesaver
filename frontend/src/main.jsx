@@ -5,10 +5,10 @@ import Home  from "./pages/Home";
 import Login from "./pages/Login";
 import "./index.css";
 
-// Simple auth check — replace with real auth later
+// Auth check — looks for the JWT set by Login.jsx on successful sign-in
 function PrivateRoute({ children }) {
-  const isLoggedIn = localStorage.getItem("isLoggedIn");
-  return isLoggedIn ? children : <Navigate to="/login" />;
+  const token = localStorage.getItem("token");
+  return token ? children : <Navigate to="/login" />;
 }
 
 ReactDOM.createRoot(document.getElementById("root")).render(
