@@ -3,38 +3,15 @@ import TaskCard      from "./components/TaskCard";
 import ChatMessage   from "./components/ChatMessage";
 import StatsBar      from "./components/StatsBar";
 import AddTaskForm   from "./components/AddTaskForm";
-import { scoreTask, callGeminiChat, toGeminiHistory } from "./services/gemini";
+import {
+  fetchTasks,
+  createTask as apiCreateTask,
+  updateTaskRemote,
+  deleteTaskRemote,
+  scoreTask,
+  chatWithAI,
+} from "./services/api";
 import { getTimeLeft, estimateUrgency } from "./utils/helpers";
-
-const SEED_TASKS = [
-  {
-    id: 1,
-    title: "Submit project proposal",
-    deadline: new Date(Date.now() + 3 * 3600000).toISOString(),
-    category: "Work",
-    urgency: 9,
-    completed: false,
-    aiTip: "Start with the executive summary — it unblocks everything else.",
-  },
-  {
-    id: 2,
-    title: "Pay electricity bill",
-    deadline: new Date(Date.now() + 26 * 3600000).toISOString(),
-    category: "Finance",
-    urgency: 6,
-    completed: false,
-    aiTip: "Takes 3 min online. Do it right after your next break.",
-  },
-  {
-    id: 3,
-    title: "Review presentation slides",
-    deadline: new Date(Date.now() + 72 * 3600000).toISOString(),
-    category: "Work",
-    urgency: 3,
-    completed: false,
-    aiTip: "Schedule a 30-min block tomorrow morning when you're fresh.",
-  },
-];
 
 const INIT_CHAT = [
   {
@@ -51,18 +28,41 @@ const QUICK_PROMPTS = [
   "Plan next 2 hours",
 ];
 
+// Backend uses Mongo's _id — normalize to `id` so existing components
+// (TaskCard, etc.) that expect task.id keep working unchanged.
+function normalizeTask(t) {
+  return { ...t, id: t._id };
+}
+
 export default function App() {
-  const [tasks,     setTasks]     = useState(SEED_TASKS);
-  const [chat,      setChat]      = useState(INIT_CHAT);
-  const [input,     setInput]     = useState("");
-  const [loading,   setLoading]   = useState(false);
-  const [showAdd,   setShowAdd]   = useState(false);
-  const [activeTab, setActiveTab] = useState("tasks");
+  const [tasks,        setTasks]        = useState([]);
+  const [tasksLoading, setTasksLoading]  = useState(true);
+  const [tasksError,   setTasksError]    = useState("");
+  const [chat,         setChat]          = useState(INIT_CHAT);
+  const [input,        setInput]         = useState("");
+  const [loading,       setLoading]      = useState(false);
+  const [showAdd,       setShowAdd]      = useState(false);
+  const [activeTab,     setActiveTab]    = useState("tasks");
   const chatEndRef = useRef(null);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [chat]);
+
+  // Load this user's tasks from the backend on first render
+  useEffect(() => {
+    (async () => {
+      try {
+        const remoteTasks = await fetchTasks();
+        setTasks(remoteTasks.map(normalizeTask));
+      } catch (err) {
+        console.error("Fetch tasks error:", err);
+        setTasksError("Couldn't load your tasks. Try refreshing the page.");
+      } finally {
+        setTasksLoading(false);
+      }
+    })();
+  }, []);
 
   const sortedTasks = [...tasks].sort((a, b) => {
     if (a.completed !== b.completed) return a.completed ? 1 : -1;
@@ -82,52 +82,76 @@ export default function App() {
     setShowAdd(false);
     const timeLeft  = getTimeLeft(form.deadline);
     const hoursLeft = Math.max(0, Math.floor(timeLeft.ms / 3600000));
-    const taskId    = Date.now();
-
-    setTasks((prev) => [
-      ...prev,
-      {
-        id: taskId,
-        ...form,
-        urgency:   estimateUrgency(hoursLeft),
-        completed: false,
-        aiTip:     "Analyzing with Gemini AI…",
-      },
-    ]);
 
     try {
-      const result = await scoreTask({ title: form.title, category: form.category, hoursLeft });
-      setTasks((prev) =>
-        prev.map((t) =>
-          t.id === taskId
-            ? {
-                ...t,
-                urgency: result.urgency ?? estimateUrgency(hoursLeft),
-                aiTip:   result.tip     ?? "Break it into small steps and start now.",
-              }
-            : t
-        )
+      // Create the task in the backend first so it has a real _id
+      const created = normalizeTask(
+        await apiCreateTask({
+          title:    form.title,
+          deadline: form.deadline,
+          category: form.category,
+          urgency:  estimateUrgency(hoursLeft),
+          aiTip:    "Analyzing with Gemini AI…",
+        })
       );
+
+      setTasks((prev) => [...prev, created]);
+
+      // Then ask Gemini to score it and patch the task with the real result
+      try {
+        const result = await scoreTask({ title: form.title, category: form.category, hoursLeft });
+        const updated = normalizeTask(
+          await updateTaskRemote(created.id, {
+            urgency: result.urgency ?? created.urgency,
+            aiTip:   result.tip     ?? "Break it into small steps and start now.",
+          })
+        );
+        setTasks((prev) => prev.map((t) => (t.id === created.id ? updated : t)));
+      } catch (err) {
+        console.error("Gemini score error:", err);
+        const fallback = normalizeTask(
+          await updateTaskRemote(created.id, {
+            aiTip: "Start with the smallest possible first step right now.",
+          })
+        );
+        setTasks((prev) => prev.map((t) => (t.id === created.id ? fallback : t)));
+      }
     } catch (err) {
-      console.error("Gemini score error:", err);
+      console.error("Create task error:", err);
+      setTasksError("Couldn't save that task. Please try again.");
+    }
+  }
+
+  async function toggleComplete(id) {
+    const target = tasks.find((t) => t.id === id);
+    if (!target) return;
+
+    // Optimistic update
+    setTasks((prev) =>
+      prev.map((t) => (t.id === id ? { ...t, completed: !t.completed } : t))
+    );
+
+    try {
+      await updateTaskRemote(id, { completed: !target.completed });
+    } catch (err) {
+      console.error("Toggle complete error:", err);
+      // Revert on failure
       setTasks((prev) =>
-        prev.map((t) =>
-          t.id === taskId
-            ? { ...t, aiTip: "Start with the smallest possible first step right now." }
-            : t
-        )
+        prev.map((t) => (t.id === id ? { ...t, completed: target.completed } : t))
       );
     }
   }
 
-  function toggleComplete(id) {
-    setTasks((prev) =>
-      prev.map((t) => (t.id === id ? { ...t, completed: !t.completed } : t))
-    );
-  }
-
-  function deleteTask(id) {
+  async function deleteTask(id) {
+    const prevTasks = tasks;
     setTasks((prev) => prev.filter((t) => t.id !== id));
+
+    try {
+      await deleteTaskRemote(id);
+    } catch (err) {
+      console.error("Delete task error:", err);
+      setTasks(prevTasks); // revert on failure
+    }
   }
 
   async function sendMessage() {
@@ -138,25 +162,14 @@ export default function App() {
     setInput("");
     setLoading(true);
 
-    const taskSummary = tasks
-      .map((t) => `- "${t.title}" | urgency: ${t.urgency}/10 | deadline: ${new Date(t.deadline).toLocaleString()} | ${t.completed ? "DONE" : "PENDING"}`)
-      .join("\n");
-
-    const systemPrompt = `You are LifeSaver AI, an elite productivity coach.
-Help users beat deadlines, prioritize smartly, and take action NOW.
-Be direct, energetic, and specific. No fluff. Use line breaks for readability.
-Current user tasks:\n${taskSummary || "No tasks yet."}
-Today: ${new Date().toLocaleString()}`;
-
     try {
-      const history = toGeminiHistory(newChat);
-      const reply   = await callGeminiChat(systemPrompt, history);
+      const reply = await chatWithAI(newChat, tasks);
       setChat((prev) => [...prev, { role: "assistant", content: reply }]);
     } catch (err) {
       console.error("Gemini chat error:", err);
       setChat((prev) => [
         ...prev,
-        { role: "assistant", content: "Sorry, I couldn't connect right now. Check your VITE_GEMINI_KEY and try again." },
+        { role: "assistant", content: "Sorry, I couldn't connect right now. Please try again in a moment." },
       ]);
     }
     setLoading(false);
@@ -165,7 +178,7 @@ Today: ${new Date().toLocaleString()}`;
   return (
     <div className="min-h-screen bg-bg text-slate-100 font-grotesk flex flex-col">
 
-      <header className="bg-surface border-b border-border px-5 py-3.5 flex items-center justify-between">
+      <header className="bg-surface border-b border-border pl-5 pr-24 py-3.5 flex items-center justify-between">
         <div className="flex items-center gap-2.5">
           <div
             className="w-9 h-9 rounded-xl flex items-center justify-center text-[18px]"
@@ -210,6 +223,12 @@ Today: ${new Date().toLocaleString()}`;
       <main className="flex-1 overflow-auto p-5">
         {activeTab === "tasks" && (
           <div className="max-w-2xl mx-auto">
+            {tasksError && (
+              <p className="text-danger text-sm mb-4 bg-[#EF444411] px-3 py-2 rounded-lg">
+                {tasksError}
+              </p>
+            )}
+
             {!showAdd ? (
               <button
                 onClick={() => setShowAdd(true)}
@@ -222,7 +241,11 @@ Today: ${new Date().toLocaleString()}`;
               <AddTaskForm onAdd={handleAddTask} onCancel={() => setShowAdd(false)} />
             )}
 
-            {sortedTasks.length === 0 ? (
+            {tasksLoading ? (
+              <div className="text-center py-16 text-muted">
+                <p className="text-sm">Loading your tasks…</p>
+              </div>
+            ) : sortedTasks.length === 0 ? (
               <div className="text-center py-16 text-muted">
                 <p className="text-4xl mb-3">🎯</p>
                 <p className="font-semibold mb-1">No tasks yet</p>
