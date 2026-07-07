@@ -1,8 +1,9 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import Home  from "./pages/Home";
-import Login from "./pages/Login";
+import Home   from "./pages/Home";
+import Login  from "./pages/Login";
+import Signup from "./pages/Signup";
 import "./index.css";
 
 // Auth check — looks for the JWT set by Login.jsx on successful sign-in
@@ -15,8 +16,9 @@ ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>
     <BrowserRouter>
       <Routes>
-        {/* Public route */}
+        {/* Public routes */}
         <Route path="/login" element={<Login />} />
+        <Route path="/signup" element={<Signup />} />
 
         {/* Protected route — redirects to /login if not logged in */}
         <Route
