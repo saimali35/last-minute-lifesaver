@@ -1,8 +1,9 @@
-
+// ─── Gemini API (Google) ─────────────────────────────────────────────────────
+// Get your key at: https://aistudio.google.com/apikey
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const GEMINI_URL =
-  "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent";
+  "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
 
 // ─── Helper: convert OpenAI-style messages -> Gemini format ─────────────────
 // Gemini wants: { systemInstruction, contents: [{ role: "user"|"model", parts: [{text}] }] }
