@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from "react";
-import TaskCard      from "./components/TaskCard";
-import ChatMessage   from "./components/ChatMessage";
-import StatsBar      from "./components/StatsBar";
-import AddTaskForm   from "./components/AddTaskForm";
+import TaskCard from "./components/TaskCard";
+import ChatMessage from "./components/ChatMessage";
+import StatsBar from "./components/StatsBar";
+import AddTaskForm from "./components/AddTaskForm";
 import {
   fetchTasks,
   createTask as apiCreateTask,
@@ -35,14 +35,14 @@ function normalizeTask(t) {
 }
 
 export default function App() {
-  const [tasks,        setTasks]        = useState([]);
-  const [tasksLoading, setTasksLoading]  = useState(true);
-  const [tasksError,   setTasksError]    = useState("");
-  const [chat,         setChat]          = useState(INIT_CHAT);
-  const [input,        setInput]         = useState("");
-  const [loading,       setLoading]      = useState(false);
-  const [showAdd,       setShowAdd]      = useState(false);
-  const [activeTab,     setActiveTab]    = useState("tasks");
+  const [tasks, setTasks] = useState([]);
+  const [tasksLoading, setTasksLoading] = useState(true);
+  const [tasksError, setTasksError] = useState("");
+  const [chat, setChat] = useState(INIT_CHAT);
+  const [input, setInput] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [showAdd, setShowAdd] = useState(false);
+  const [activeTab, setActiveTab] = useState("tasks");
   const chatEndRef = useRef(null);
 
   useEffect(() => {
@@ -71,27 +71,27 @@ export default function App() {
 
   const stats = {
     critical: tasks.filter((t) => !t.completed && t.urgency >= 8).length,
-    urgent:   tasks.filter((t) => !t.completed && t.urgency >= 5 && t.urgency < 8).length,
-    done:     tasks.filter((t) => t.completed).length,
-    total:    tasks.length,
+    urgent: tasks.filter((t) => !t.completed && t.urgency >= 5 && t.urgency < 8).length,
+    done: tasks.filter((t) => t.completed).length,
+    total: tasks.length,
   };
   const progressPct =
     stats.total > 0 ? Math.round((stats.done / stats.total) * 100) : 0;
 
   async function handleAddTask(form) {
     setShowAdd(false);
-    const timeLeft  = getTimeLeft(form.deadline);
+    const timeLeft = getTimeLeft(form.deadline);
     const hoursLeft = Math.max(0, Math.floor(timeLeft.ms / 3600000));
 
     try {
       // Create the task in the backend first so it has a real _id
       const created = normalizeTask(
         await apiCreateTask({
-          title:    form.title,
+          title: form.title,
           deadline: form.deadline,
           category: form.category,
-          urgency:  estimateUrgency(hoursLeft),
-          aiTip:    "Analyzing with Gemini AI…",
+          urgency: estimateUrgency(hoursLeft),
+          aiTip: "Analyzing with Gemini AI…",
         })
       );
 
@@ -103,7 +103,7 @@ export default function App() {
         const updated = normalizeTask(
           await updateTaskRemote(created.id, {
             urgency: result.urgency ?? created.urgency,
-            aiTip:   result.tip     ?? "Break it into small steps and start now.",
+            aiTip: result.tip ?? "Break it into small steps and start now.",
           })
         );
         setTasks((prev) => prev.map((t) => (t.id === created.id ? updated : t)));
@@ -152,6 +152,11 @@ export default function App() {
       console.error("Delete task error:", err);
       setTasks(prevTasks); // revert on failure
     }
+  }
+  function editTask(id, updates) {
+    setTasks((prev) =>
+      prev.map((t) => (t.id === id ? { ...t, ...updates } : t))
+    );
   }
 
   async function sendMessage() {
@@ -211,9 +216,8 @@ export default function App() {
           <button
             key={key}
             onClick={() => setActiveTab(key)}
-            className={`text-[13px] font-semibold px-4 py-2.5 border-b-2 transition-all cursor-pointer bg-transparent border-x-0 border-t-0 ${
-              activeTab === key ? "text-amber border-amber" : "text-muted border-transparent hover:text-subtle"
-            }`}
+            className={`text-[13px] font-semibold px-4 py-2.5 border-b-2 transition-all cursor-pointer bg-transparent border-x-0 border-t-0 ${activeTab === key ? "text-amber border-amber" : "text-muted border-transparent hover:text-subtle"
+              }`}
           >
             {label}
           </button>
@@ -299,9 +303,8 @@ export default function App() {
               <button
                 onClick={sendMessage}
                 disabled={loading || !input.trim()}
-                className={`px-5 rounded-xl text-lg border-0 transition cursor-pointer ${
-                  loading || !input.trim() ? "bg-border text-muted cursor-not-allowed" : "bg-amber text-bg hover:brightness-110"
-                }`}
+                className={`px-5 rounded-xl text-lg border-0 transition cursor-pointer ${loading || !input.trim() ? "bg-border text-muted cursor-not-allowed" : "bg-amber text-bg hover:brightness-110"
+                  }`}
               >
                 ➤
               </button>
