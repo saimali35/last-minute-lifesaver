@@ -28,28 +28,25 @@ const QUICK_PROMPTS = [
   "Plan next 2 hours",
 ];
 
-// Backend uses Mongo's _id — normalize to `id` so existing components
-// (TaskCard, etc.) that expect task.id keep working unchanged.
 function normalizeTask(t) {
   return { ...t, id: t._id };
 }
 
 export default function App() {
-  const [tasks, setTasks] = useState([]);
+  const [tasks,        setTasks]        = useState([]);
   const [tasksLoading, setTasksLoading] = useState(true);
-  const [tasksError, setTasksError] = useState("");
-  const [chat, setChat] = useState(INIT_CHAT);
-  const [input, setInput] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [showAdd, setShowAdd] = useState(false);
-  const [activeTab, setActiveTab] = useState("tasks");
+  const [tasksError,   setTasksError]   = useState("");
+  const [chat,         setChat]         = useState(INIT_CHAT);
+  const [input,        setInput]        = useState("");
+  const [loading,      setLoading]      = useState(false);
+  const [showAdd,      setShowAdd]      = useState(false);
+  const [activeTab,    setActiveTab]    = useState("tasks");
   const chatEndRef = useRef(null);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [chat]);
 
-  // Load this user's tasks from the backend on first render
   useEffect(() => {
     (async () => {
       try {
@@ -71,44 +68,41 @@ export default function App() {
 
   const stats = {
     critical: tasks.filter((t) => !t.completed && t.urgency >= 8).length,
-    urgent: tasks.filter((t) => !t.completed && t.urgency >= 5 && t.urgency < 8).length,
-    done: tasks.filter((t) => t.completed).length,
-    total: tasks.length,
+    urgent:   tasks.filter((t) => !t.completed && t.urgency >= 5 && t.urgency < 8).length,
+    done:     tasks.filter((t) => t.completed).length,
+    total:    tasks.length,
   };
   const progressPct =
     stats.total > 0 ? Math.round((stats.done / stats.total) * 100) : 0;
 
   async function handleAddTask(form) {
     setShowAdd(false);
-    const timeLeft = getTimeLeft(form.deadline);
+    const timeLeft  = getTimeLeft(form.deadline);
     const hoursLeft = Math.max(0, Math.floor(timeLeft.ms / 3600000));
 
     try {
-      // Create the task in the backend first so it has a real _id
       const created = normalizeTask(
         await apiCreateTask({
-          title: form.title,
+          title:    form.title,
           deadline: form.deadline,
           category: form.category,
-          urgency: estimateUrgency(hoursLeft),
-          aiTip: "Analyzing with Gemini AI…",
+          urgency:  estimateUrgency(hoursLeft),
+          aiTip:    "Analyzing with Gemini AI…",
         })
       );
-
       setTasks((prev) => [...prev, created]);
 
-      // Then ask Gemini to score it and patch the task with the real result
       try {
         const result = await scoreTask({ title: form.title, category: form.category, hoursLeft });
         const updated = normalizeTask(
           await updateTaskRemote(created.id, {
             urgency: result.urgency ?? created.urgency,
-            aiTip: result.tip ?? "Break it into small steps and start now.",
+            aiTip:   result.tip ?? "Break it into small steps and start now.",
           })
         );
         setTasks((prev) => prev.map((t) => (t.id === created.id ? updated : t)));
       } catch (err) {
-        console.error("Gemini score error:", err);
+        console.error("Score error:", err);
         const fallback = normalizeTask(
           await updateTaskRemote(created.id, {
             aiTip: "Start with the smallest possible first step right now.",
@@ -125,17 +119,13 @@ export default function App() {
   async function toggleComplete(id) {
     const target = tasks.find((t) => t.id === id);
     if (!target) return;
-
-    // Optimistic update
     setTasks((prev) =>
       prev.map((t) => (t.id === id ? { ...t, completed: !t.completed } : t))
     );
-
     try {
       await updateTaskRemote(id, { completed: !target.completed });
     } catch (err) {
-      console.error("Toggle complete error:", err);
-      // Revert on failure
+      console.error("Toggle error:", err);
       setTasks((prev) =>
         prev.map((t) => (t.id === id ? { ...t, completed: target.completed } : t))
       );
@@ -145,18 +135,23 @@ export default function App() {
   async function deleteTask(id) {
     const prevTasks = tasks;
     setTasks((prev) => prev.filter((t) => t.id !== id));
-
     try {
       await deleteTaskRemote(id);
     } catch (err) {
-      console.error("Delete task error:", err);
-      setTasks(prevTasks); // revert on failure
+      console.error("Delete error:", err);
+      setTasks(prevTasks);
     }
   }
-  function editTask(id, updates) {
+
+  async function editTask(id, updates) {
     setTasks((prev) =>
       prev.map((t) => (t.id === id ? { ...t, ...updates } : t))
     );
+    try {
+      await updateTaskRemote(id, updates);
+    } catch (err) {
+      console.error("Edit error:", err);
+    }
   }
 
   async function sendMessage() {
@@ -171,7 +166,7 @@ export default function App() {
       const reply = await chatWithAI(newChat, tasks);
       setChat((prev) => [...prev, { role: "assistant", content: reply }]);
     } catch (err) {
-      console.error("Gemini chat error:", err);
+      console.error("Chat error:", err);
       setChat((prev) => [
         ...prev,
         { role: "assistant", content: "Sorry, I couldn't connect right now. Please try again in a moment." },
@@ -216,8 +211,9 @@ export default function App() {
           <button
             key={key}
             onClick={() => setActiveTab(key)}
-            className={`text-[13px] font-semibold px-4 py-2.5 border-b-2 transition-all cursor-pointer bg-transparent border-x-0 border-t-0 ${activeTab === key ? "text-amber border-amber" : "text-muted border-transparent hover:text-subtle"
-              }`}
+            className={`text-[13px] font-semibold px-4 py-2.5 border-b-2 transition-all cursor-pointer bg-transparent border-x-0 border-t-0 ${
+              activeTab === key ? "text-amber border-amber" : "text-muted border-transparent hover:text-subtle"
+            }`}
           >
             {label}
           </button>
@@ -257,7 +253,13 @@ export default function App() {
               </div>
             ) : (
               sortedTasks.map((task) => (
-                <TaskCard key={task.id} task={task} onComplete={toggleComplete} onDelete={deleteTask} />
+                <TaskCard
+                  key={task.id}
+                  task={task}
+                  onComplete={toggleComplete}
+                  onDelete={deleteTask}
+                  onEdit={editTask}
+                />
               ))
             )}
           </div>
@@ -303,8 +305,9 @@ export default function App() {
               <button
                 onClick={sendMessage}
                 disabled={loading || !input.trim()}
-                className={`px-5 rounded-xl text-lg border-0 transition cursor-pointer ${loading || !input.trim() ? "bg-border text-muted cursor-not-allowed" : "bg-amber text-bg hover:brightness-110"
-                  }`}
+                className={`px-5 rounded-xl text-lg border-0 transition cursor-pointer ${
+                  loading || !input.trim() ? "bg-border text-muted cursor-not-allowed" : "bg-amber text-bg hover:brightness-110"
+                }`}
               >
                 ➤
               </button>
